@@ -6,14 +6,15 @@ from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramForbiddenError
 from functools import wraps
 
-TOKEN = "8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q"
+TOKEN = "TOKEN_BU_YERGA"
 ADMIN_ID = 7815632054
 PROMO_CODE = "FFPRO"
 
-CHANNELS = [
-    "@azimboyev_blog",
-    "@CyberLearnUz",
-    "@comment_bIog"
+# 🔒 Kanal + Guruh
+REQUIRED_CHATS = [
+    "@azimboyev_blog",   # kanal
+    "@CyberLearnUz",     # kanal
+    "@comment_bIog"      # GURUH
 ]
 
 bot = Bot(token=TOKEN)
@@ -32,7 +33,6 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS profiles (
     user_id INTEGER PRIMARY KEY,
     uses INTEGER DEFAULT 0,
-    promo_used INTEGER DEFAULT 0,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1
 )
@@ -69,15 +69,15 @@ async def safe_send(func, *args, **kwargs):
 
 # ================= SUB CHECK =================
 async def check_sub(uid):
-    not_sub = []
-    for ch in CHANNELS:
+    not_joined = []
+    for chat in REQUIRED_CHATS:
         try:
-            m = await bot.get_chat_member(ch, uid)
-            if m.status not in ["member", "administrator", "creator"]:
-                not_sub.append(ch)
+            member = await bot.get_chat_member(chat, uid)
+            if member.status in ["left", "kicked"]:
+                not_joined.append(chat)
         except:
-            not_sub.append(ch)
-    return not_sub
+            not_joined.append(chat)
+    return not_joined
 
 def subscription_required(handler):
     @wraps(handler)
@@ -88,26 +88,29 @@ def subscription_required(handler):
             await event.answer("🚫 Siz botdan bloklangansiz.")
             return
 
-        not_sub = await check_sub(uid)
-        if not_sub:
-            text = "❌ *Quyidagi kanallarga obuna emassiz:*\n\n"
-            text += "\n".join([f"• {c}" for c in not_sub])
+        not_joined = await check_sub(uid)
+        if not_joined:
+            text = "❌ *Quyidagi kanallarga/guruhga obuna emassiz:*\n\n"
+            text += "\n".join([f"• {c}" for c in not_joined])
+
+            target = event.message.edit_text if isinstance(event, CallbackQuery) else event.answer
             await safe_send(
-                event.message.edit_text if isinstance(event, CallbackQuery) else event.answer,
+                target,
                 text,
                 reply_markup=sub_menu(),
                 parse_mode="Markdown"
             )
             return
+
         return await handler(event, *args, **kwargs)
     return wrapper
 
 # ================= MENUS =================
 def sub_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 1-kanal", url="https://t.me/azimboyev_blog")],
-        [InlineKeyboardButton(text="📢 2-kanal", url="https://t.me/CyberLearnUz")],
-        [InlineKeyboardButton(text="📢 3-kanal", url="https://t.me/comment_bIog")],
+        [InlineKeyboardButton(text="📢 Kanal 1", url="https://t.me/azimboyev_blog")],
+        [InlineKeyboardButton(text="📢 Kanal 2", url="https://t.me/CyberLearnUz")],
+        [InlineKeyboardButton(text="💬 Guruh", url="https://t.me/comment_bIog")],
         [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")]
     ])
 
@@ -148,19 +151,27 @@ def auto_calc(ram, dpi, fps):
     if fps <= 30: base -= 15
     if fps >= 60: base += 10
     base = max(120, min(200, base))
-    return {k: base - v for k, v in {
-        "General": 0, "Red Dot": 10, "2x": 20,
-        "4x": 35, "AWM": 55, "Free Look": 30
-    }.items()}
+    return {
+        "General": base,
+        "Red Dot": base - 10,
+        "2x": base - 20,
+        "4x": base - 35,
+        "AWM": base - 55,
+        "Free Look": base - 30
+    }
 
-def calc_level(xp): return xp // 100 + 1
+def calc_level(xp):
+    return xp // 100 + 1
 
 async def add_xp(uid, amount, msg):
     cursor.execute("SELECT xp, level FROM profiles WHERE user_id=?", (uid,))
     xp, lvl = cursor.fetchone()
     xp += amount
     new_lvl = calc_level(xp)
-    cursor.execute("UPDATE profiles SET xp=?, level=? WHERE user_id=?", (xp, new_lvl, uid))
+    cursor.execute(
+        "UPDATE profiles SET xp=?, level=? WHERE user_id=?",
+        (xp, new_lvl, uid)
+    )
     db.commit()
     if new_lvl > lvl:
         await msg.answer(f"🎉 LEVEL UP! {lvl} → {new_lvl}")
@@ -169,17 +180,27 @@ async def add_xp(uid, amount, msg):
 @dp.message(CommandStart())
 async def start(msg: Message):
     save_user(msg.from_user.id)
-    if await check_sub(msg.from_user.id):
-        await msg.answer("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(), parse_mode="Markdown")
+    not_joined = await check_sub(msg.from_user.id)
+
+    if not not_joined:
+        await msg.answer(
+            "🔥 *FF PRO SETTINGS*\n\nXush kelibsiz!",
+            reply_markup=main_menu(),
+            parse_mode="Markdown"
+        )
     else:
-        await msg.answer("❌ Obuna bo‘ling", reply_markup=sub_menu())
+        await msg.answer(
+            "❌ Botdan foydalanish uchun obuna bo‘ling",
+            reply_markup=sub_menu()
+        )
 
 @dp.callback_query(F.data == "check_sub")
 async def recheck(cb: CallbackQuery):
-    if not await check_sub(cb.from_user.id):
-        await cb.message.edit_text("❌ Hali obuna emassiz", reply_markup=sub_menu())
-    else:
+    not_joined = await check_sub(cb.from_user.id)
+    if not not_joined:
         await cb.message.edit_text("✅ Obuna tasdiqlandi", reply_markup=main_menu())
+    else:
+        await cb.answer("❌ Hali hammasiga obuna emassiz", show_alert=True)
 
 @dp.callback_query(F.data == "auto")
 @subscription_required
@@ -210,7 +231,10 @@ async def set_fps(cb: CallbackQuery):
         "INSERT INTO history (user_id, ram, dpi, fps, date) VALUES (?, ?, ?, ?, datetime('now'))",
         (cb.from_user.id, d["ram"], d["dpi"], fps)
     )
-    cursor.execute("UPDATE profiles SET uses=uses+1 WHERE user_id=?", (cb.from_user.id,))
+    cursor.execute(
+        "UPDATE profiles SET uses = uses + 1 WHERE user_id=?",
+        (cb.from_user.id,)
+    )
     db.commit()
 
     await add_xp(cb.from_user.id, 20, cb.message)
@@ -220,46 +244,6 @@ async def set_fps(cb: CallbackQuery):
         text += f"{k}: {v}\n"
 
     await cb.message.edit_text(text, parse_mode="Markdown")
-
-# ================= USER =================
-@dp.message(F.text == "/profile")
-@subscription_required
-async def profile(msg: Message):
-    cursor.execute("SELECT uses, xp, level FROM profiles WHERE user_id=?", (msg.from_user.id,))
-    u, xp, lvl = cursor.fetchone()
-    await msg.answer(
-        f"👤 Profil\n🎯 Hisoblashlar: {u}\n⚡ XP: {xp}\n🏆 Level: {lvl}"
-    )
-
-@dp.message(F.text == "/history")
-@subscription_required
-async def history_cmd(msg: Message):
-    cursor.execute("SELECT ram,dpi,fps FROM history WHERE user_id=? ORDER BY id DESC LIMIT 5", (msg.from_user.id,))
-    rows = cursor.fetchall()
-    if not rows:
-        await msg.answer("📭 Tarix yo‘q")
-        return
-    text = "📜 OXIRGI SOZLAMALAR:\n"
-    for r in rows:
-        text += f"• {r[0]}GB | {r[1]} DPI | {r[2]} FPS\n"
-    await msg.answer(text)
-
-# ================= ADMIN =================
-@dp.message(F.from_user.id == ADMIN_ID, F.text == "/level_stats")
-async def level_stats(msg: Message):
-    cursor.execute("SELECT COUNT(*) FROM profiles")
-    total = cursor.fetchone()[0]
-    cursor.execute("SELECT AVG(level) FROM profiles")
-    avg = cursor.fetchone()[0] or 0
-    cursor.execute("SELECT MAX(level) FROM profiles")
-    mx = cursor.fetchone()[0] or 0
-    cursor.execute("SELECT user_id, level FROM profiles ORDER BY level DESC LIMIT 5")
-    top = cursor.fetchall()
-
-    text = f"📊 LEVEL STAT\n👥 Userlar: {total}\n🏆 O‘rtacha: {avg:.1f}\n🔥 Max: {mx}\n\nTOP 5:\n"
-    for u in top:
-        text += f"• {u[0]} — L{u[1]}\n"
-    await msg.answer(text)
 
 # ================= RUN =================
 async def main():
