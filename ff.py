@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramForbiddenError
 from functools import wraps
 
-TOKEN = "TOKEN_BU_YERGA"
+TOKEN = "8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q"
 ADMIN_ID = 7815632054
 PROMO_CODE = "FFPRO"
 
@@ -251,3 +251,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
