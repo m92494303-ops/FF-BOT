@@ -13,6 +13,7 @@ TOKEN = "8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q"
 CHANNELS = [
     "@azimboyev_blog",
     "@CyberLearnUz"
+    "@comment_bIog"
 ]
 ADMIN_ID = 7815632054
 
@@ -154,6 +155,7 @@ def sub_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 1-kanalga obuna", url="https://t.me/azimboyev_blog")],
         [InlineKeyboardButton(text="📢 2-kanalga obuna", url="https://t.me/CyberLearnUz")],
+        [InlineKeyboardButton(text="📢 3-kanalga obuna", url="https://t.me/comment_bIog")],
         [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")]
     ])
 
