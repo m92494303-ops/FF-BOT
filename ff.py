@@ -7,13 +7,20 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
-    LabeledPrice, PreCheckoutQuery
+    LabeledPrice, PreCheckoutQuery, Update
 )
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 
+from fastapi import FastAPI, Request
+import uvicorn
+
 # ================== CONFIG ==================
 TOKEN = "8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q"
+
+WEBHOOK_URL = "ff-bot-production.up.railway.app"  # 🔴 SHUNI ALMASHTIR
+WEBHOOK_PATH = "/webhook"
+
 ADMIN_ID = 7815632054
 
 REQUIRED_CHATS = [
@@ -28,6 +35,7 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode="Markdown")
 )
 dp = Dispatcher()
+app = FastAPI()
 
 # ================== DATABASE =================
 db = sqlite3.connect("bot.db", check_same_thread=False)
@@ -94,10 +102,7 @@ def subscription_required(handler):
         if is_banned(uid):
             unban(uid)
             if isinstance(event, CallbackQuery):
-                await event.answer(
-                    "✅ Tasdiqlandi\n🔓 *BANDAN CHIQDINGIZ*",
-                    show_alert=True
-                )
+                await event.answer("✅ Tasdiqlandi\n🔓 *BANDAN CHIQDINGIZ*", show_alert=True)
 
         return await handler(event, *args, **kwargs)
     return wrapper
@@ -112,17 +117,11 @@ def sub_menu():
     ])
 
 def main_menu(uid: int):
-    kb = [
-        [InlineKeyboardButton(text="🎯 AUTO SENSITIVITY", callback_data="auto")]
-    ]
+    kb = [[InlineKeyboardButton(text="🎯 AUTO SENSITIVITY", callback_data="auto")]]
     if is_vip(uid):
-        kb.append(
-            [InlineKeyboardButton(text="🔥 VIP EXTREME HS", callback_data="vip_extreme")]
-        )
+        kb.append([InlineKeyboardButton(text="🔥 VIP EXTREME HS", callback_data="vip_extreme")])
     else:
-        kb.append(
-            [InlineKeyboardButton(text="⭐ VIP PRO (5⭐)", callback_data="vip_buy")]
-        )
+        kb.append([InlineKeyboardButton(text="⭐ VIP PRO (5⭐)", callback_data="vip_buy")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def back_menu():
@@ -130,172 +129,62 @@ def back_menu():
         [InlineKeyboardButton(text="🔙 Back", callback_data="back")]
     ])
 
-def admin_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")]
-    ])
-
 # ================== TEXT =====================
 AUTO_TEXT = (
     "🎯 *AUTO SENSITIVITY (FREE)*\n\n"
-    "🎯 Taxminiy HEADSHOT: *~80%*\n\n"
-    "General: 170\n"
-    "Red Dot: 165\n"
-    "2x: 150\n"
-    "4x: 130\n"
-    "AWM: 110\n\n"
-    "🟡 Oddiy o‘yinchilar uchun\n"
-    "🆓 Bepul nastroyka"
+    "🎯 ~80% HEADSHOT\n\n"
+    "General: 170\nRed Dot: 165\n2x: 150\n4x: 130\nAWM: 110"
 )
 
 VIP_TEXT = (
     "🔥 *VIP EXTREME HEADSHOT (PRO)*\n\n"
-    "🎯 Taxminiy HEADSHOT: *~95%*\n\n"
-    "General: 195\n"
-    "Red Dot: 190\n"
-    "2x: 175\n"
-    "4x: 150\n"
-    "AWM: 130\n\n"
-    "⚡ PRO o‘yinchilar uchun\n"
-    "⭐ 5 Telegram Stars bilan ochiladi"
+    "🎯 ~95% HEADSHOT\n\n"
+    "General: 195\nRed Dot: 190\n2x: 175\n4x: 150\nAWM: 130"
 )
 
-# ================== START ====================
+# ================== HANDLERS =================
 @dp.message(CommandStart())
 async def start(msg: Message):
     save_user(msg.from_user.id)
     if not await check_sub(msg.from_user.id):
-        await msg.answer(
-            "🔥 *FF PRO SETTINGS*",
-            reply_markup=main_menu(msg.from_user.id)
-        )
+        await msg.answer("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(msg.from_user.id))
     else:
         await msg.answer("❌ Avval obuna bo‘ling", reply_markup=sub_menu())
-
-# ================== NAV ======================
-@dp.callback_query(F.data == "back")
-async def back(cb: CallbackQuery):
-    await cb.message.edit_text(
-        "🔥 *FF PRO SETTINGS*",
-        reply_markup=main_menu(cb.from_user.id)
-    )
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_btn(cb: CallbackQuery):
     uid = cb.from_user.id
     if not await check_sub(uid):
         unban(uid)
-        await cb.message.edit_text(
-            "🔥 *FF PRO SETTINGS*",
-            reply_markup=main_menu(uid)
-        )
+        await cb.message.edit_text("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(uid))
     else:
         await cb.answer("❌ Hali obuna to‘liq emas", show_alert=True)
 
-# ================== AUTO =====================
 @dp.callback_query(F.data == "auto")
 @subscription_required
 async def auto(cb: CallbackQuery):
     await cb.message.edit_text(AUTO_TEXT, reply_markup=back_menu())
 
-# ================== VIP BUY (⭐ STARS) ==================
-@dp.callback_query(F.data == "vip_buy")
-@subscription_required
-async def vip_buy(cb: CallbackQuery):
-    prices = [
-        LabeledPrice(
-            label="VIP PRO (5 ⭐ Telegram Stars)",
-            amount=5
-        )
-    ]
-
-    await bot.send_invoice(
-        chat_id=cb.from_user.id,
-        title="⭐ VIP PRO",
-        description="VIP EXTREME HEADSHOT ochish",
-        payload="vip_5stars",
-        currency="XTR",
-        prices=prices,
-        provider_token=""
-    )
-
-@dp.pre_checkout_query()
-async def pre_checkout(pre: PreCheckoutQuery):
-    await pre.answer(ok=True)
-
-@dp.message(F.successful_payment)
-async def successful_payment(msg: Message):
-    if msg.successful_payment.invoice_payload != "vip_5stars":
-        return
-
-    uid = msg.from_user.id
-    cur.execute("INSERT OR IGNORE INTO vip VALUES (?)", (uid,))
-    db.commit()
-
-    stars = msg.successful_payment.total_amount
-
-    await msg.answer(
-        "🎉 *To‘lov muvaffaqiyatli!*\n\n"
-        f"⭐ To‘langan: {stars} Stars\n"
-        "👑 *VIP PRO faollashtirildi!*"
-    )
-
-# ================== VIP ONLY =================
 @dp.callback_query(F.data == "vip_extreme")
 @subscription_required
-async def vip_only(cb: CallbackQuery):
+async def vip_extreme(cb: CallbackQuery):
     if not is_vip(cb.from_user.id):
         await cb.answer("❌ Siz VIP emassiz", show_alert=True)
         return
     await cb.message.edit_text(VIP_TEXT, reply_markup=back_menu())
 
-# ================== ADMIN ====================
-@dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
-async def admin(msg: Message):
-    await msg.answer("👑 *ADMIN PANEL*", reply_markup=admin_menu())
+# ================== WEBHOOK ==================
+@app.on_event("startup")
+async def on_startup():
+    await bot.set_webhook(WEBHOOK_URL + WEBHOOK_PATH)
 
-@dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
-async def admin_stats(cb: CallbackQuery):
-    cur.execute("SELECT COUNT(*) FROM users")
-    users = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM vip")
-    vips = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM bans")
-    bans = cur.fetchone()[0]
-    await cb.message.answer(
-        f"👤 Userlar: {users}\n⭐ VIP: {vips}\n🚫 BAN: {bans}"
-    )
-
-# ================== BROADCAST =================
-@dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
-async def bc_info(cb: CallbackQuery):
-    await cb.message.answer(
-        "📢 *Broadcast*\n\n"
-        "Keyingi yuborgan xabaringiz BARCHA userlarga ketadi."
-    )
-
-@dp.message(F.from_user.id == ADMIN_ID)
-async def broadcast(msg: Message):
-    if msg.text and msg.text.startswith("/"):
-        return
-
-    cur.execute("SELECT user_id FROM users")
-    users = [u[0] for u in cur.fetchall()]
-
-    for uid in users:
-        try:
-            await msg.copy_to(uid)
-            await asyncio.sleep(0.05)
-        except:
-            pass
-
-    await msg.answer("✅ Broadcast tugadi")
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(req: Request):
+    data = await req.json()
+    update = Update(**data)
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 # ================== RUN ======================
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(app, host="0.0.0.0", port=8080)
