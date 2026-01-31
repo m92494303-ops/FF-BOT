@@ -20,11 +20,11 @@ REQUIRED_CHATS = [
     "@comment_bIog"
 ]
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN, parse_mode="Markdown")
 dp = Dispatcher()
 
 # ================= DATABASE =================
-db = sqlite3.connect("bot.db")
+db = sqlite3.connect("bot.db", check_same_thread=False)
 cursor = db.cursor()
 
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)")
@@ -42,8 +42,8 @@ db.commit()
 # ================= UTILS =================
 def save_user(uid):
     cursor.execute("INSERT OR IGNORE INTO users VALUES (?)", (uid,))
-    cursor.execute("INSERT OR IGNORE INTO profiles VALUES (?,0)", (uid,))
-    cursor.execute("INSERT OR IGNORE INTO stars_balance VALUES (?,0)", (uid,))
+    cursor.execute("INSERT OR IGNORE INTO profiles (user_id) VALUES (?)", (uid,))
+    cursor.execute("INSERT OR IGNORE INTO stars_balance (user_id) VALUES (?)", (uid,))
     db.commit()
 
 def is_banned(uid):
@@ -66,7 +66,7 @@ async def check_sub(uid):
     for chat in REQUIRED_CHATS:
         try:
             m = await bot.get_chat_member(chat, uid)
-            if m.status in ["left", "kicked"]:
+            if m.status in ("left", "kicked"):
                 not_joined.append(chat)
         except:
             not_joined.append(chat)
@@ -82,20 +82,23 @@ def subscription_required(handler):
             cursor.execute("INSERT OR IGNORE INTO bans VALUES (?)", (uid,))
             db.commit()
 
-            txt = (
+            text = (
                 "❌ *Siz kanaldan chiqqaningiz uchun BAN oldingiz*\n\n"
                 "📢 Qayta obuna bo‘ling:\n" +
-                "\n".join([f"• {c}" for c in not_joined]) +
+                "\n".join(f"• {c}" for c in not_joined) +
                 "\n\n✅ Obuna bo‘lib /start bosing"
             )
-            target = event.message.edit_text if isinstance(event, CallbackQuery) else event.answer
-            await safe_send(target, txt, parse_mode="Markdown")
+
+            if isinstance(event, CallbackQuery):
+                await safe_send(event.message.edit_text, text)
+            else:
+                await event.answer(text)
             return
 
         if is_banned(uid):
             cursor.execute("DELETE FROM bans WHERE user_id=?", (uid,))
             db.commit()
-            await event.answer("✅ Qayta obuna bo‘ldingiz\n🔓 *BANDAN CHIQDINGIZ*", parse_mode="Markdown")
+            await event.answer("✅ Qayta obuna bo‘ldingiz\n🔓 *BANDAN CHIQDINGIZ*")
 
         return await handler(event, *args, **kwargs)
     return wrapper
@@ -103,45 +106,42 @@ def subscription_required(handler):
 # ================= MENUS =================
 def sub_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Kanal 1", url="https://t.me/azimboyev_blog")],
-        [InlineKeyboardButton(text="📢 Kanal 2", url="https://t.me/CyberLearnUz")],
-        [InlineKeyboardButton(text="💬 Guruh", url="https://t.me/comment_bIog")],
-        [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")]
+        [InlineKeyboardButton("📢 Kanal 1", url="https://t.me/azimboyev_blog")],
+        [InlineKeyboardButton("📢 Kanal 2", url="https://t.me/CyberLearnUz")],
+        [InlineKeyboardButton("💬 Guruh", url="https://t.me/comment_bIog")],
+        [InlineKeyboardButton("✅ Tekshirish", callback_data="check_sub")]
     ])
 
 def main_menu(uid):
-    kb = [[InlineKeyboardButton(text="🎯 AUTO SENSITIVITY", callback_data="auto")]]
+    kb = [[InlineKeyboardButton("🎯 AUTO SENSITIVITY", callback_data="auto")]]
     if is_vip(uid):
-        kb.append([InlineKeyboardButton(text="🔥 VIP EXTREME HS", callback_data="vip_extreme")])
+        kb.append([InlineKeyboardButton("🔥 VIP EXTREME HS", callback_data="vip_extreme")])
     else:
-        kb.append([InlineKeyboardButton(text="⭐ VIP PRO (5⭐)", callback_data="vip")])
+        kb.append([InlineKeyboardButton("⭐ VIP PRO (5⭐)", callback_data="vip")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 VIP statistikasi", callback_data="admin_vip_stats")],
-        [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")]
+        [InlineKeyboardButton("📊 VIP statistikasi", callback_data="admin_vip_stats")]
     ])
 
-# ================= SENS =================
-def auto_calc():
-    return (
-        "🎯 *AUTO SENSITIVITY*\n\n"
-        "General: 182\nRed Dot: 176\n2x: 162\n4x: 138\nAWM: 118\n\n🔥 200 MAX HS"
-    )
+# ================= TEXT =================
+AUTO_TEXT = (
+    "🎯 *AUTO SENSITIVITY*\n\n"
+    "General: 182\nRed Dot: 176\n2x: 162\n4x: 138\nAWM: 118\n\n🔥 200 MAX HS"
+)
 
-def vip_text():
-    return (
-        "🔥 *VIP EXTREME HEADSHOT*\n\n"
-        "General: 188\nRed Dot: 182\n2x: 168\n4x: 142\nAWM: 120\n\n⚡ PRO ONLY"
-    )
+VIP_TEXT = (
+    "🔥 *VIP EXTREME HEADSHOT*\n\n"
+    "General: 188\nRed Dot: 182\n2x: 168\n4x: 142\nAWM: 120\n\n⚡ PRO ONLY"
+)
 
 # ================= START =================
 @dp.message(CommandStart())
 async def start(msg: Message):
     save_user(msg.from_user.id)
     if not await check_sub(msg.from_user.id):
-        await msg.answer("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(msg.from_user.id), parse_mode="Markdown")
+        await msg.answer("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(msg.from_user.id))
     else:
         await msg.answer("❌ Obuna bo‘ling", reply_markup=sub_menu())
 
@@ -149,13 +149,13 @@ async def start(msg: Message):
 @dp.callback_query(F.data == "auto")
 @subscription_required
 async def auto(cb: CallbackQuery):
-    await cb.message.edit_text(auto_calc(), parse_mode="Markdown")
+    await cb.message.edit_text(AUTO_TEXT)
 
 # ================= VIP =================
 @dp.callback_query(F.data == "vip")
 @subscription_required
 async def vip_buy(cb: CallbackQuery):
-    prices = [LabeledPrice(label="VIP PRO", amount=5 * 100)]
+    prices = [LabeledPrice("VIP PRO", 5 * 100)]
     await bot.send_invoice(
         cb.from_user.id,
         title="⭐ VIP PRO",
@@ -167,7 +167,7 @@ async def vip_buy(cb: CallbackQuery):
     )
 
 @dp.pre_checkout_query()
-async def pre(pre: PreCheckoutQuery):
+async def pre_checkout(pre: PreCheckoutQuery):
     await pre.answer(ok=True)
 
 @dp.message(F.successful_payment)
@@ -175,7 +175,7 @@ async def success(msg: Message):
     cursor.execute("INSERT OR IGNORE INTO vip VALUES (?)", (msg.from_user.id,))
     cursor.execute("UPDATE stars_balance SET balance = balance + 1 WHERE user_id=?", (msg.from_user.id,))
     db.commit()
-    await msg.answer("✅ *VIP OCHILDI!*\n🎁 ⭐1 cashback!", parse_mode="Markdown")
+    await msg.answer("✅ *VIP OCHILDI!*\n🎁 ⭐1 cashback!")
 
 @dp.callback_query(F.data == "vip_extreme")
 @subscription_required
@@ -183,7 +183,7 @@ async def vip_only(cb: CallbackQuery):
     if not is_vip(cb.from_user.id):
         await cb.answer("❌ VIP emas", show_alert=True)
         return
-    await cb.message.edit_text(vip_text(), parse_mode="Markdown")
+    await cb.message.edit_text(VIP_TEXT)
 
 # ================= ADMIN =================
 @dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
@@ -198,6 +198,7 @@ async def vip_stats(cb: CallbackQuery):
 
 # ================= RUN =================
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
