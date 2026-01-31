@@ -1,18 +1,19 @@
 import asyncio
-import os
 import sqlite3
 from functools import wraps
+from typing import List
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    LabeledPrice, PreCheckoutQuery
 )
 from aiogram.filters import CommandStart
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.client.default import DefaultBotProperties
 
-# ================= CONFIG =================
-TOKEN = os.getenv("8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q")  # BOT_TOKEN
+# ================== CONFIG ==================
+TOKEN = "8432697594:AAFeIMSAAAuoKCVONYPF7Y91lhYER080R-Q"
 ADMIN_ID = 7815632054
 
 REQUIRED_CHATS = [
@@ -21,39 +22,45 @@ REQUIRED_CHATS = [
     "@comment_bIog"
 ]
 
-bot = Bot(token=TOKEN, parse_mode="Markdown")
+# ================== BOT =====================
+bot = Bot(
+    token=TOKEN,
+    default=DefaultBotProperties(parse_mode="Markdown")
+)
 dp = Dispatcher()
 
-# ================= DATABASE =================
-db = sqlite3.connect("./bot.db", check_same_thread=False)
-cursor = db.cursor()
+# ================== DATABASE =================
+db = sqlite3.connect("bot.db", check_same_thread=False)
+cur = db.cursor()
 
-cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS vip (user_id INTEGER PRIMARY KEY)")
+cur.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)")
+cur.execute("CREATE TABLE IF NOT EXISTS vip (user_id INTEGER PRIMARY KEY)")
+cur.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY)")
 db.commit()
 
-# ================= UTILS =================
-def save_user(uid):
-    cursor.execute("INSERT OR IGNORE INTO users VALUES (?)", (uid,))
+# ================== UTILS ===================
+def save_user(uid: int):
+    cur.execute("INSERT OR IGNORE INTO users VALUES (?)", (uid,))
     db.commit()
 
-def is_banned(uid):
-    cursor.execute("SELECT 1 FROM bans WHERE user_id=?", (uid,))
-    return cursor.fetchone() is not None
+def is_vip(uid: int) -> bool:
+    cur.execute("SELECT 1 FROM vip WHERE user_id=?", (uid,))
+    return cur.fetchone() is not None
 
-def is_vip(uid):
-    cursor.execute("SELECT 1 FROM vip WHERE user_id=?", (uid,))
-    return cursor.fetchone() is not None
+def is_banned(uid: int) -> bool:
+    cur.execute("SELECT 1 FROM bans WHERE user_id=?", (uid,))
+    return cur.fetchone() is not None
 
-async def safe_send(func, *args, **kwargs):
-    try:
-        return await func(*args, **kwargs)
-    except TelegramForbiddenError:
-        return
+def ban(uid: int):
+    cur.execute("INSERT OR IGNORE INTO bans VALUES (?)", (uid,))
+    db.commit()
 
-# ================= SUB CHECK =================
-async def check_sub(uid):
+def unban(uid: int):
+    cur.execute("DELETE FROM bans WHERE user_id=?", (uid,))
+    db.commit()
+
+# ================== SUB CHECK =================
+async def check_sub(uid: int) -> List[str]:
     not_joined = []
     for chat in REQUIRED_CHATS:
         try:
@@ -71,76 +78,102 @@ def subscription_required(handler):
         not_joined = await check_sub(uid)
 
         if not_joined:
+            ban(uid)
             text = (
-                "❌ *Avval obuna bo‘ling:*\n\n" +
-                "\n".join(f"• {c}" for c in not_joined)
+                "❌ *Siz kanaldan chiqqaningiz uchun BAN oldingiz*\n\n"
+                "📢 Qayta obuna bo‘ling:\n" +
+                "\n".join(f"• {c}" for c in not_joined) +
+                "\n\n✅ Obuna bo‘lgach *Tekshirish* ni bosing"
             )
             if isinstance(event, CallbackQuery):
-                await safe_send(event.message.edit_text, text, reply_markup=sub_menu())
+                await event.message.edit_text(text, reply_markup=sub_menu())
             else:
                 await event.answer(text, reply_markup=sub_menu())
             return
+
+        if is_banned(uid):
+            unban(uid)
+            if isinstance(event, CallbackQuery):
+                await event.answer(
+                    "✅ Tasdiqlandi\n🔓 *BANDAN CHIQDINGIZ*",
+                    show_alert=True
+                )
+
         return await handler(event, *args, **kwargs)
     return wrapper
 
-# ================= MENUS =================
+# ================== MENUS ====================
 def sub_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📢 Kanal 1", url="https://t.me/azimboyev_blog")],
-        [InlineKeyboardButton("📢 Kanal 2", url="https://t.me/CyberLearnUz")],
-        [InlineKeyboardButton("💬 Guruh", url="https://t.me/comment_bIog")],
-        [InlineKeyboardButton("🔄 Tekshirish", callback_data="back")]
+        [InlineKeyboardButton(text="📢 Kanal 1", url="https://t.me/azimboyev_blog")],
+        [InlineKeyboardButton(text="📢 Kanal 2", url="https://t.me/CyberLearnUz")],
+        [InlineKeyboardButton(text="💬 Guruh", url="https://t.me/comment_bIog")],
+        [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")]
     ])
 
-def main_menu(uid):
+def main_menu(uid: int):
     kb = [
-        [InlineKeyboardButton("🎯 AUTO SENSITIVITY", callback_data="auto")]
+        [InlineKeyboardButton(text="🎯 AUTO SENSITIVITY", callback_data="auto")]
     ]
     if is_vip(uid):
-        kb.append([InlineKeyboardButton("🔥 VIP EXTREME HS", callback_data="vip_extreme")])
+        kb.append(
+            [InlineKeyboardButton(text="🔥 VIP EXTREME HS", callback_data="vip_extreme")]
+        )
     else:
-        kb.append([InlineKeyboardButton("⭐ VIP PRO", callback_data="vip_info")])
+        kb.append(
+            [InlineKeyboardButton(text="⭐ VIP PRO (5⭐)", callback_data="vip_buy")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-def back_menu(uid):
+def back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("🔙 Back", callback_data="back")]
+        [InlineKeyboardButton(text="🔙 Back", callback_data="back")]
     ])
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📊 VIP statistikasi", callback_data="admin_vip_stats")]
+        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")]
     ])
 
-# ================= TEXT =================
+# ================== TEXT =====================
 AUTO_TEXT = (
-    "🎯 *AUTO SENSITIVITY*\n\n"
-    "General: 182\nRed Dot: 176\n2x: 162\n4x: 138\nAWM: 118\n\n"
-    "🔥 200 MAX HS"
+    "🎯 *AUTO SENSITIVITY (FREE)*\n\n"
+    "🎯 Taxminiy HEADSHOT: *~80%*\n\n"
+    "General: 170\n"
+    "Red Dot: 165\n"
+    "2x: 150\n"
+    "4x: 130\n"
+    "AWM: 110\n\n"
+    "🟡 Oddiy o‘yinchilar uchun\n"
+    "🆓 Bepul nastroyka"
 )
 
 VIP_TEXT = (
-    "🔥 *VIP EXTREME HEADSHOT*\n\n"
-    "General: 188\nRed Dot: 182\n2x: 168\n4x: 142\nAWM: 120\n\n"
-    "⚡ PRO ONLY"
+    "🔥 *VIP EXTREME HEADSHOT (PRO)*\n\n"
+    "🎯 Taxminiy HEADSHOT: *~95%*\n\n"
+    "General: 195\n"
+    "Red Dot: 190\n"
+    "2x: 175\n"
+    "4x: 150\n"
+    "AWM: 130\n\n"
+    "⚡ PRO o‘yinchilar uchun\n"
+    "⭐ 5 Telegram Stars bilan ochiladi"
 )
 
-VIP_INFO = (
-    "⭐ *VIP PRO*\n\n"
-    "VIP faqat *ADMIN* orqali beriladi.\n"
-    "Agar sotib olmoqchi bo‘lsangiz — admin bilan bog‘laning."
-)
-
-# ================= START =================
+# ================== START ====================
 @dp.message(CommandStart())
 async def start(msg: Message):
     save_user(msg.from_user.id)
     if not await check_sub(msg.from_user.id):
-        await msg.answer("🔥 *FF PRO SETTINGS*", reply_markup=main_menu(msg.from_user.id))
+        await msg.answer(
+            "🔥 *FF PRO SETTINGS*",
+            reply_markup=main_menu(msg.from_user.id)
+        )
     else:
         await msg.answer("❌ Avval obuna bo‘ling", reply_markup=sub_menu())
 
-# ================= NAV =================
+# ================== NAV ======================
 @dp.callback_query(F.data == "back")
 async def back(cb: CallbackQuery):
     await cb.message.edit_text(
@@ -148,71 +181,118 @@ async def back(cb: CallbackQuery):
         reply_markup=main_menu(cb.from_user.id)
     )
 
-# ================= AUTO =================
+@dp.callback_query(F.data == "check_sub")
+async def check_sub_btn(cb: CallbackQuery):
+    uid = cb.from_user.id
+    if not await check_sub(uid):
+        unban(uid)
+        await cb.message.edit_text(
+            "🔥 *FF PRO SETTINGS*",
+            reply_markup=main_menu(uid)
+        )
+    else:
+        await cb.answer("❌ Hali obuna to‘liq emas", show_alert=True)
+
+# ================== AUTO =====================
 @dp.callback_query(F.data == "auto")
 @subscription_required
 async def auto(cb: CallbackQuery):
-    await cb.message.edit_text(
-        AUTO_TEXT,
-        reply_markup=back_menu(cb.from_user.id)
-    )
+    await cb.message.edit_text(AUTO_TEXT, reply_markup=back_menu())
 
-# ================= VIP INFO =================
-@dp.callback_query(F.data == "vip_info")
+# ================== VIP BUY (⭐ STARS) ==================
+@dp.callback_query(F.data == "vip_buy")
 @subscription_required
-async def vip_info(cb: CallbackQuery):
-    await cb.message.edit_text(
-        VIP_INFO,
-        reply_markup=back_menu(cb.from_user.id)
+async def vip_buy(cb: CallbackQuery):
+    prices = [
+        LabeledPrice(
+            label="VIP PRO (5 ⭐ Telegram Stars)",
+            amount=5
+        )
+    ]
+
+    await bot.send_invoice(
+        chat_id=cb.from_user.id,
+        title="⭐ VIP PRO",
+        description="VIP EXTREME HEADSHOT ochish",
+        payload="vip_5stars",
+        currency="XTR",
+        prices=prices,
+        provider_token=""
     )
 
-# ================= VIP ONLY =================
+@dp.pre_checkout_query()
+async def pre_checkout(pre: PreCheckoutQuery):
+    await pre.answer(ok=True)
+
+@dp.message(F.successful_payment)
+async def successful_payment(msg: Message):
+    if msg.successful_payment.invoice_payload != "vip_5stars":
+        return
+
+    uid = msg.from_user.id
+    cur.execute("INSERT OR IGNORE INTO vip VALUES (?)", (uid,))
+    db.commit()
+
+    stars = msg.successful_payment.total_amount
+
+    await msg.answer(
+        "🎉 *To‘lov muvaffaqiyatli!*\n\n"
+        f"⭐ To‘langan: {stars} Stars\n"
+        "👑 *VIP PRO faollashtirildi!*"
+    )
+
+# ================== VIP ONLY =================
 @dp.callback_query(F.data == "vip_extreme")
 @subscription_required
 async def vip_only(cb: CallbackQuery):
     if not is_vip(cb.from_user.id):
         await cb.answer("❌ Siz VIP emassiz", show_alert=True)
         return
-    await cb.message.edit_text(
-        VIP_TEXT,
-        reply_markup=back_menu(cb.from_user.id)
-    )
+    await cb.message.edit_text(VIP_TEXT, reply_markup=back_menu())
 
-# ================= ADMIN =================
+# ================== ADMIN ====================
 @dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
 async def admin(msg: Message):
     await msg.answer("👑 *ADMIN PANEL*", reply_markup=admin_menu())
 
-@dp.callback_query(F.data == "admin_vip_stats", F.from_user.id == ADMIN_ID)
-async def vip_stats(cb: CallbackQuery):
-    cursor.execute("SELECT COUNT(*) FROM vip")
-    v = cursor.fetchone()[0]
-    await cb.message.answer(f"⭐ VIP userlar: {v}")
+@dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
+async def admin_stats(cb: CallbackQuery):
+    cur.execute("SELECT COUNT(*) FROM users")
+    users = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM vip")
+    vips = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM bans")
+    bans = cur.fetchone()[0]
+    await cb.message.answer(
+        f"👤 Userlar: {users}\n⭐ VIP: {vips}\n🚫 BAN: {bans}"
+    )
 
-# ================= ADMIN COMMANDS =================
-@dp.message(F.from_user.id == ADMIN_ID, F.text.startswith("/addvip"))
-async def add_vip(msg: Message):
-    parts = msg.text.split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        await msg.answer("❌ Foydalanish: `/addvip user_id`")
+# ================== BROADCAST =================
+@dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
+async def bc_info(cb: CallbackQuery):
+    await cb.message.answer(
+        "📢 *Broadcast*\n\n"
+        "Keyingi yuborgan xabaringiz BARCHA userlarga ketadi."
+    )
+
+@dp.message(F.from_user.id == ADMIN_ID)
+async def broadcast(msg: Message):
+    if msg.text and msg.text.startswith("/"):
         return
-    uid = int(parts[1])
-    cursor.execute("INSERT OR IGNORE INTO vip VALUES (?)", (uid,))
-    db.commit()
-    await msg.answer(f"✅ VIP berildi: `{uid}`")
 
-@dp.message(F.from_user.id == ADMIN_ID, F.text.startswith("/delvip"))
-async def del_vip(msg: Message):
-    parts = msg.text.split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        await msg.answer("❌ Foydalanish: `/delvip user_id`")
-        return
-    uid = int(parts[1])
-    cursor.execute("DELETE FROM vip WHERE user_id=?", (uid,))
-    db.commit()
-    await msg.answer(f"🗑 VIP olib tashlandi: `{uid}`")
+    cur.execute("SELECT user_id FROM users")
+    users = [u[0] for u in cur.fetchall()]
 
-# ================= RUN =================
+    for uid in users:
+        try:
+            await msg.copy_to(uid)
+            await asyncio.sleep(0.05)
+        except:
+            pass
+
+    await msg.answer("✅ Broadcast tugadi")
+
+# ================== RUN ======================
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
